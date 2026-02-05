@@ -1,6 +1,8 @@
 package clickhouse
 
 import (
+	"crypto/ecdsa"
+	"fmt"
 	"log/slog"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
@@ -12,6 +14,23 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 	c.logger.Debug("sending query",
 		slog.String("compression", c.compression.String()),
 		slog.String("query", body))
+
+	// Resolve signing key: context-level overrides connection-level
+	querySettings := o.settings
+	if key := c.resolveSigningKey(o); key != nil {
+		token, err := signQuery(body, key)
+		if err != nil {
+			return fmt.Errorf("failed to sign query: %w", err)
+		}
+		// Clone settings to avoid mutating the original map
+		querySettings = make(Settings, len(o.settings)+1)
+		for k, v := range o.settings {
+			querySettings[k] = v
+		}
+		querySettings["SQL_x_auth_token"] = CustomSetting{Value: token}
+		c.logger.Debug("query signed with JWS token")
+	}
+
 	c.buffer.PutByte(proto.ClientQuery)
 	q := proto.Query{
 		ClientTCPProtocolVersion: ClientTCPProtocolVersion,
@@ -23,7 +42,7 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 		QuotaKey:                 o.quotaKey,
 		Compression:              c.compression != CompressionNone,
 		InitialAddress:           c.conn.LocalAddr().String(),
-		Settings:                 c.settings(o.settings),
+		Settings:                 c.settings(querySettings),
 		Parameters:               parametersToProtoParameters(o.parameters),
 	}
 	if err := q.Encode(c.buffer, c.revision); err != nil {
@@ -38,6 +57,13 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 		return err
 	}
 	return c.flush()
+}
+
+func (c *connect) resolveSigningKey(o *QueryOptions) *ecdsa.PrivateKey {
+	if o.signingKey != nil {
+		return o.signingKey
+	}
+	return c.opt.SigningKey
 }
 
 func parametersToProtoParameters(parameters Parameters) (s proto.Parameters) {

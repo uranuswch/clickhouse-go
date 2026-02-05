@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -168,6 +169,12 @@ type Options struct {
 	// This is called per connection/request, so you may cache the token in your app if needed.
 	// Use this instead of Auth.Username and Auth.Password if you're using JWT auth.
 	GetJWT GetJWTFunc
+
+	// SigningKey is an ECDSA private key (secp256k1) used to sign queries with JWS tokens.
+	// When set, all queries sent via the native TCP protocol will include
+	// a SQL_x_auth_token setting containing the JWS signature.
+	// Can be overridden per-query using WithSigningKey in the context.
+	SigningKey *ecdsa.PrivateKey
 
 	scheme string
 
