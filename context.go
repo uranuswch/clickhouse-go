@@ -2,7 +2,6 @@ package clickhouse
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"maps"
 	"slices"
 	"time"
@@ -45,7 +44,7 @@ type (
 		queryID    string
 		quotaKey   string
 		jwt        string
-		signingKey *ecdsa.PrivateKey
+		signFunc func(queryBody string) (token string, err error)
 		events     struct {
 			logs          func(*Log)
 			progress      func(*Progress)
@@ -191,12 +190,13 @@ func WithUserLocation(location *time.Location) QueryOption {
 	}
 }
 
-// WithSigningKey sets an ECDSA private key (secp256k1) for signing this query.
-// Overrides any signing key set at the connection level in Options.SigningKey.
-// The query body will be signed with a JWS token and sent as the SQL_x_auth_token setting.
-func WithSigningKey(key *ecdsa.PrivateKey) QueryOption {
+// WithSignFunc sets a callback function for signing queries.
+// Overrides any sign function set at the connection level in Options.SignFunc.
+// The callback receives the query body and should return a token string
+// (e.g. a JWS token) that will be sent as the SQL_x_auth_token setting.
+func WithSignFunc(signFunc func(queryBody string) (token string, err error)) QueryOption {
 	return func(o *QueryOptions) error {
-		o.signingKey = key
+		o.signFunc = signFunc
 		return nil
 	}
 }
@@ -320,7 +320,7 @@ func (q *QueryOptions) clone() QueryOptions {
 		async:               q.async,
 		queryID:             q.queryID,
 		quotaKey:            q.quotaKey,
-		signingKey:          q.signingKey,
+		signFunc:            q.signFunc,
 		events:              q.events,
 		settings:            nil,
 		parameters:          nil,

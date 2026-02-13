@@ -1,7 +1,6 @@
 package clickhouse
 
 import (
-	"crypto/ecdsa"
 	"fmt"
 	"log/slog"
 
@@ -15,10 +14,10 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 		slog.String("compression", c.compression.String()),
 		slog.String("query", body))
 
-	// Resolve signing key: context-level overrides connection-level
+	// Resolve sign function: context-level overrides connection-level
 	querySettings := o.settings
-	if key := c.resolveSigningKey(o); key != nil {
-		token, err := signQuery(body, key)
+	if signFunc := c.resolveSignFunc(o); signFunc != nil {
+		token, err := signFunc(body)
 		if err != nil {
 			return fmt.Errorf("failed to sign query: %w", err)
 		}
@@ -59,11 +58,11 @@ func (c *connect) sendQuery(body string, o *QueryOptions) error {
 	return c.flush()
 }
 
-func (c *connect) resolveSigningKey(o *QueryOptions) *ecdsa.PrivateKey {
-	if o.signingKey != nil {
-		return o.signingKey
+func (c *connect) resolveSignFunc(o *QueryOptions) func(string) (string, error) {
+	if o.signFunc != nil {
+		return o.signFunc
 	}
-	return c.opt.SigningKey
+	return c.opt.SignFunc
 }
 
 func parametersToProtoParameters(parameters Parameters) (s proto.Parameters) {
